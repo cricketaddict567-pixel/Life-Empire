@@ -7,7 +7,7 @@ const SAVE_VERSION: int = 1
 const SAVINGS_RATE: float = 0.06
 const LOAN_RATE: float = 0.11
 const BUSINESS_UPKEEP: float = 0.15
-const LIVING_COST: int = 120000
+const LIVING_COST: int = 48000
 
 var player: Dictionary = {}
 var businesses: Array = []
@@ -22,6 +22,11 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.randomize()
+
+## Seed every random source in the game, so a balance run repeats exactly.
+func use_seed(s: int) -> void:
+	_rng.seed = s
+	Database.use_seed(s)
 
 func has_game() -> bool:
 	return not player.is_empty()
@@ -97,6 +102,21 @@ func spend_cash(amount: int) -> bool:
 	player["cash"] = cash() - amount
 	EventBus.money_changed.emit(cash())
 	return true
+
+## Charge the player. If cash is short, the shortfall becomes an emergency
+## loan instead of silently pushing the balance negative, so debt is always
+## visible in the Bank screen and counted in net worth.
+func charge(amount: int) -> int:
+	if amount <= 0:
+		return 0
+	if cash() >= amount:
+		spend_cash(amount)
+		return 0
+	var shortfall: int = amount - cash()
+	player["cash"] = 0
+	loans.append({"remaining": shortfall})
+	EventBus.money_changed.emit(0)
+	return shortfall
 
 static func money_text(amount: int) -> String:
 	var neg: bool = amount < 0
@@ -205,7 +225,7 @@ func _resolve_finance(report: Array) -> void:
 		var pay: float = minf(remaining, maxf(float(cash()) * 0.3, remaining * 0.25))
 		if pay > 0.0 and cash() > 0:
 			var pay_int: int = int(minf(pay, float(cash())))
-			add_cash(-pay_int)
+			charge(pay_int)
 			remaining -= float(pay_int)
 			report.append("Loan repayment: %s." % money_text(pay_int))
 		if remaining > 1.0:
@@ -215,12 +235,27 @@ func _resolve_finance(report: Array) -> void:
 			report.append("A loan is fully repaid.")
 	loans = keep
 
+## What the player earns in a year from salary and business, before costs.
+func annual_income() -> int:
+	var income: int = 0
+	var job_id: String = String(player.get("job", ""))
+	if job_id != "":
+		income += Database.job_salary(job_id, int(player.get("job_level", 0)))
+	for b in businesses:
+		var gross: int = Database.business_income(String(b["id"]), int(b["level"]))
+		income += gross - int(float(gross) * BUSINESS_UPKEEP)
+	return income
+
+## Living costs scale with what you earn, so a jobless 18-year-old is not
+## bankrupted in year one, and a tycoon does not keep every rupee.
 func _resolve_living_costs(report: Array) -> void:
-	var cost: int = LIVING_COST
+	var cost: int = maxi(LIVING_COST, int(float(annual_income()) * 0.35))
 	if not properties.is_empty():
-		cost += int(float(properties.size()) * LIVING_COST * 0.35)
-	add_cash(-cost)
+		cost += int(float(properties.size()) * 24000.0)
+	var shortfall: int = charge(cost)
 	report.append("Living costs: %s." % money_text(cost))
+	if shortfall > 0:
+		report.append("You could not cover it and borrowed %s." % money_text(shortfall))
 
 func _resolve_stats(report: Array) -> void:
 	var age: int = int(player["age"])

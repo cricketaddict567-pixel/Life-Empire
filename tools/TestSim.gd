@@ -7,10 +7,12 @@ var failures: Array = []
 
 func _ready() -> void:
 	print("=== LIFE EMPIRE soak test ===")
+	GameState.use_seed(20261118)
 	_test_new_game()
 	_test_progression()
 	_test_save_round_trip()
 	await _test_screens()
+	_test_determinism()
 	print("")
 	if failures.is_empty():
 		print("RESULT: PASS — all checks passed")
@@ -39,9 +41,11 @@ func _test_progression() -> void:
 	var bought: bool = false
 	for year in range(40):
 		var age: int = int(GameState.player["age"])
-		# Study early if we can afford it
-		if age == 19 and String(GameState.player["studying"]) == "":
-			GameState.enroll_degree("bcom")
+		# Study as soon as we can afford it — retry every year, because whether
+		# the player can afford it at 19 depends on the year's random events.
+		if String(GameState.player["studying"]) == "" and not GameState.has_degree("bcom"):
+			if GameState.cash() >= int(Database.degree("bcom")["cost"]):
+				GameState.enroll_degree("bcom")
 		# Take any job we qualify for
 		if String(GameState.player["job"]) == "":
 			for job_id in Database.JOBS.keys():
@@ -71,6 +75,22 @@ func _test_progression() -> void:
 	print("   final: age %d, net worth %s, level %d, achievements %d" % [
 		int(GameState.player["age"]), GameState.money_text(GameState.net_worth()),
 		int(GameState.player["level"]), GameState.achievements.size()])
+
+## The same seed must produce the same life. If this drifts, balance is no
+## longer reproducible and the numbers in the README stop meaning anything.
+func _test_determinism() -> void:
+	print("-- determinism (same seed, same life)")
+	var worths: Array = []
+	for run in range(2):
+		GameState.use_seed(777)
+		GameState.new_game("Seed Check", "Female", 18, "middle")
+		for year in range(15):
+			GameState.advance_year()
+		worths.append(GameState.net_worth())
+	_check(worths[0] == worths[1], "seeded runs diverged: %d vs %d" % [worths[0], worths[1]])
+	print("   two seeded 15-year runs: %s and %s" % [
+		GameState.money_text(worths[0]), GameState.money_text(worths[1])])
+	GameState.use_seed(20261118)
 
 func _test_save_round_trip() -> void:
 	print("-- save / load round trip")

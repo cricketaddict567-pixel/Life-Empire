@@ -1,0 +1,46 @@
+; LIFE EMPIRE — Android life simulator & business tycoon
+; Godot 4.3 project file
+
+config_version=5
+
+[application]
+
+config/name="LIFE EMPIRE"
+config/description="Build a life, build an empire. Offline-first life simulator and business tycoon for Android."
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
+boot_splash/bg_color=Color(0.0627451, 0.0588235, 0.152941, 1)
+boot_splash/show_image=false
+
+[autoload]
+
+EventBus="*res://autoload/EventBus.gd"
+Database="*res://autoload/Database.gd"
+SaveManager="*res://autoload/SaveManager.gd"
+GameState="*res://autoload/GameState.gd"
+
+[display]
+
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/size/window_width_override=540
+window/size/window_height_override=960
+window/handheld/orientation=1
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[gui]
+
+theme/default_font_multichannel_signed_distance_field=true
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.0627451, 0.0588235, 0.152941, 1)

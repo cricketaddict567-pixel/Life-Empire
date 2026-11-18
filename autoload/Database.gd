@@ -2,6 +2,16 @@ extends Node
 ## Static game data: backgrounds, degrees, jobs, businesses, properties, events.
 ## Balance values live here so they can be tuned in one place.
 
+var _rng := RandomNumberGenerator.new()
+
+func _ready() -> void:
+	_rng.randomize()
+
+## Make the whole simulation reproducible. Used by the headless tests so a
+## balance run can be repeated exactly.
+func use_seed(s: int) -> void:
+	_rng.seed = s
+
 const BACKGROUNDS := {
 	"poor": {
 		"name": "Working Class Family",
@@ -204,7 +214,7 @@ func pick_event() -> Dictionary:
 	var total: int = 0
 	for e in EVENTS:
 		total += int(e["weight"])
-	var roll: int = randi_range(1, total)
+	var roll: int = _rng.randi_range(1, total)
 	var acc: int = 0
 	for e in EVENTS:
 		acc += int(e["weight"])
