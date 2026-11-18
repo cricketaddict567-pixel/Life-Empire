@@ -1,0 +1,175 @@
+name: Android Debug APK
+
+# Builds a debug Android APK from the "Android" export preset in
+# export_presets.cfg and publishes it as a downloadable artifact.
+#
+# Everything below mirrors a build that was run and verified end to end:
+# Godot 4.3 + export templates + JDK 17 + Android build-tools 34 produce a
+# signed APK of roughly 47 MB.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.3"          # -> export_templates/4.3.stable
+  GODOT_RELEASE: "4.3-stable"   # -> release asset names
+  PRESET: "Android"             # must match [preset.0] name in export_presets.cfg
+  APK_PATH: "build/android/life-empire-debug.apk"
+  ANDROID_BUILD_TOOLS: "34.0.0"
+  ANDROID_PLATFORM: "34"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-debug-apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          sdkmanager --install \
+            "platform-tools" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "platforms;android-${ANDROID_PLATFORM}"
+          echo "${ANDROID_SDK_ROOT}/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Cache Godot editor and export templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.godot-ci/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_RELEASE }}-android-v1
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} and Android export templates
+        run: |
+          set -euo pipefail
+          GODOT_BIN="$GITHUB_WORKSPACE/.godot-ci/godot"
+          mkdir -p "$GITHUB_WORKSPACE/.godot-ci"
+
+          if [ ! -x "$GODOT_BIN" ]; then
+            curl -fsSL -o /tmp/godot.zip \
+              "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip"
+            unzip -oq /tmp/godot.zip -d "$GITHUB_WORKSPACE/.godot-ci"
+            mv "$GITHUB_WORKSPACE/.godot-ci/Godot_v${GODOT_RELEASE}_linux.x86_64" "$GODOT_BIN"
+            chmod +x "$GODOT_BIN"
+          fi
+          "$GODOT_BIN" --version
+
+          TPL_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          if [ ! -f "$TPL_DIR/android_debug.apk" ]; then
+            curl -fsSL -o /tmp/templates.tpz \
+              "https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz"
+            mkdir -p /tmp/tpl "$TPL_DIR"
+            unzip -oq /tmp/templates.tpz \
+              "templates/android_debug.apk" \
+              "templates/android_release.apk" \
+              "templates/version.txt" -d /tmp/tpl
+            cp /tmp/tpl/templates/* "$TPL_DIR/"
+          fi
+          echo "Templates in $TPL_DIR:"
+          ls -lh "$TPL_DIR"
+
+      - name: Create debug keystore
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          KS="$HOME/.android/debug.keystore"
+          if [ ! -f "$KS" ]; then
+            keytool -genkeypair -v -keystore "$KS" \
+              -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          ls -l "$KS"
+
+      - name: Point Godot at the Android SDK, JDK and keystore
+        run: |
+          set -euo pipefail
+          GODOT_BIN="$GITHUB_WORKSPACE/.godot-ci/godot"
+
+          # Running the editor once writes editor_settings-<version>.tres.
+          "$GODOT_BIN" --headless --editor --quit --path . || true
+
+          SETTINGS="$HOME/.config/godot/editor_settings-${GODOT_VERSION}.tres"
+          if [ ! -f "$SETTINGS" ]; then
+            "$GODOT_BIN" --headless --editor --quit || true
+          fi
+          if [ ! -f "$SETTINGS" ]; then
+            echo "::error::Godot did not create $SETTINGS"
+            exit 1
+          fi
+
+          sed -i -E "s|^export/android/android_sdk_path = .*|export/android/android_sdk_path = \"${ANDROID_SDK_ROOT}\"|" "$SETTINGS"
+          sed -i -E "s|^export/android/java_sdk_path = .*|export/android/java_sdk_path = \"${JAVA_HOME}\"|" "$SETTINGS"
+          sed -i -E "s|^export/android/debug_keystore = .*|export/android/debug_keystore = \"${HOME}/.android/debug.keystore\"|" "$SETTINGS"
+          sed -i -E "s|^export/android/debug_keystore_user = .*|export/android/debug_keystore_user = \"androiddebugkey\"|" "$SETTINGS"
+          sed -i -E "s|^export/android/debug_keystore_pass = .*|export/android/debug_keystore_pass = \"android\"|" "$SETTINGS"
+
+          echo "Configured Android export settings:"
+          grep -E "^export/android/(android_sdk_path|java_sdk_path|debug_keystore)" "$SETTINGS"
+
+      - name: Import project
+        run: |
+          "$GITHUB_WORKSPACE/.godot-ci/godot" --headless --path . --import || true
+
+      - name: Export debug APK
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$APK_PATH")"
+          "$GITHUB_WORKSPACE/.godot-ci/godot" --headless --path . \
+            --export-debug "$PRESET" "$APK_PATH"
+          ls -lh "$APK_PATH"
+
+      - name: Verify the APK
+        run: |
+          set -euo pipefail
+          SIZE=$(stat -c%s "$APK_PATH")
+          echo "APK size: $SIZE bytes"
+          if [ "$SIZE" -lt 5000000 ]; then
+            echo "::error::APK is suspiciously small ($SIZE bytes) — export probably failed"
+            exit 1
+          fi
+          if ! unzip -l "$APK_PATH" | grep -q "assets/"; then
+            echo "::error::APK contains no game data (assets/)"
+            exit 1
+          fi
+          "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}/apksigner" \
+            verify --print-certs "$APK_PATH"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: life-empire-debug-apk
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 30

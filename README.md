@@ -157,6 +157,13 @@ This needs a machine with Godot and the Android toolchain. Steps:
 
 `build/`, `*.apk`, `*.aab` and `*.keystore` are already in `.gitignore`.
 
+## Continuous integration
+
+`.github/workflows/android-apk.yml` builds a debug APK on every push to `main` and on
+manual dispatch, then uploads it as the **life-empire-debug-apk** artifact. It sets up
+JDK 17, Android build-tools 34, Godot 4.3 and its export templates, generates a debug
+keystore, and verifies the APK signature before uploading. See `ANDROID_BUILD.md`.
+
 ## Design decisions
 
 - **Manual year advance, not a real-time clock.** The player chooses when a year passes,

@@ -65,8 +65,8 @@ and **Release Password**, and export with *Export With Debug* unticked.
 | Setting | Value | Why |
 |---|---|---|
 | Package name | `com.cricketaddict567.lifeempire` | Must be unique on Play; change if you prefer |
-| Min SDK | 24 (Android 7.0) | Covers ~98% of active devices |
-| Target SDK | 34 (Android 14) | Play Store requirement |
+| Min SDK | 21 (Android 5.0) | Prebuilt template default |
+| Target SDK | 34 (Android 14) | Prebuilt template default; meets Play's requirement |
 | Architectures | arm64-v8a + armeabi-v7a | Modern phones plus older 32-bit devices |
 | Renderer | GL Compatibility | Works on low-end GPUs; set in `project.godot` |
 | Orientation | Portrait | Set in `project.godot` |
@@ -74,3 +74,27 @@ and **Release Password**, and export with *Export With Debug* unticked.
 | Immersive mode | On | Full-screen, no system bars |
 
 `tools/` is excluded from the export so the test harness never ships inside the APK.
+
+**Min/target SDK caveat:** with `use_gradle_build=false` the APK is built from Godot's
+prebuilt template, and Godot rejects `min_sdk`/`target_sdk` overrides in that mode
+("can only be overridden when Use Gradle Build is enabled"). The preset therefore leaves
+them empty and the template's values (21 / 34) apply. If you ever need different values,
+tick **Use Gradle Build** in the preset — that requires the Android build template and NDK
+installed, and a longer build.
+
+## Automated build with GitHub Actions
+
+`.github/workflows/android-apk.yml` builds the debug APK on every push to `main` and on
+demand. It installs JDK 17, the Android SDK with build-tools 34, Godot 4.3 and its export
+templates, creates a debug keystore, points Godot's editor settings at all three, exports
+the APK and verifies the signature before uploading.
+
+To build from GitHub:
+
+1. Open the **Actions** tab → **Android Debug APK** → **Run workflow**.
+2. When it finishes, open the run and download the **life-empire-debug-apk** artifact
+   (kept for 30 days).
+3. Unzip it and install: `adb install -r life-empire-debug.apk`.
+
+The workflow fails loudly rather than uploading a broken file: it checks the APK is over
+5 MB, contains `assets/`, and passes `apksigner verify`.
